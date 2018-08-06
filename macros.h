@@ -1,10 +1,10 @@
-#ifndef LIFE_H
-#define LIFE_H
+#ifndef LMACROS_H
+#define LMACROS_H
 
 #define LIVE (' '|A_REVERSE) // Space + A_REVERSE produces the opaque block which is the default cursor for many terminal emulators
 #define DEAD ' '
 
-#define ISLIVE(y, x) CELL((y), (x)) // 1 if live, 0 if dead
+#define ISLIVE(y, x) grid[(y)][(x)] // 1 if live, 0 if dead
 
 #define INFOCOLS 30
 #define INFOLINES LINES
