@@ -1,6 +1,6 @@
-/* Based on 
+/* Loosely based on MasseR's Curses-game-of-life (https://github.com/MasseR/Curses-game-of-life).
  *
- * TODO.
+ * TO DO.
  * write copycells
  * 
  * Allow for real-time adjustments to terminal screen dimensions
