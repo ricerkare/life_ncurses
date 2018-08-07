@@ -12,6 +12,7 @@
  */
 
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ncurses.h>
@@ -21,20 +22,20 @@
 
 /* grid will contain the cell information when the animation is paused, and will feed the buffer, whose cells are then displayed */
 
-int ** grid;
-int ** buffer;
+int **grid;
+int **buffer;
 
 static int lifecols = 0, lifelines = 0;
 
 static WINDOW * info = NULL;
 static WINDOW * life = NULL;
 
-/* 100 000 000 nanoseconds (0.1 second); i.e., roughly, 10 fps */
-static struct timespec animation_sleep;
+/* Default wait time is 100 000 000 nanoseconds (0.1 second); i.e., roughly, 10 fps */
+static struct timespec wait;
+static double fwait = 100e+6;
 
-void copy_cells(int ** matrix0, int ** matrix1);
-void activate(int y, int x, int ** matrix);
-void deactivate(int y, int x, int ** matrix);
+void display_cells(int **matrix, int y_len, int x_len);
+void copy_cells(int **matrix0, int **matrix1, int y_len, int x_len);
 void randomize_grid();
 void clear_grid();
 void tick();
@@ -42,15 +43,13 @@ void print_info(); //TODO
 void init();
 void init_ncurses();
 void finish(); //TODO
-int count_neighbors(int y, int x);
+int count_neighbors(int **matrix, int y, int x);
 
 WINDOW *createwin(int height, int width, int begy, int begx);
 
 int main()
 {
-    srand(time(NULL));
-    int ch;
-    int y, x;
+    int ch, y, x;
     init();
     while ((ch = getch()) != 'q' && ch != 'Q') {
 	getyx(life, y, x);
@@ -61,16 +60,16 @@ int main()
 	    tick();
 	}
 	else if (ch == 'c' || ch == 'C') {
-	    clear_grid();
+	    clear_grid(grid, lifelines, lifecols);
 	}
 	else {
 	    switch(ch) {
 	    case ' ':
 		if (!ISLIVE(y, x)) {
-		    activate(y, x, grid);
+		    grid[y][x] = 1;
 		}
 		else {
-		    deactivate(y, x, grid);
+		    grid[y][x] = 0;
 		}
 		break;
 	    case KEY_UP:
@@ -85,95 +84,110 @@ int main()
 	    case KEY_RIGHT:
 		x = (x + 1) % lifecols;
 		break;
-		/*  Wait time increments/decrements by 50 000 000 nanoseconds; 20 fps (roughly) is the maximum speed and 1 (roughly) fps the minimum. */
+		
+		/* Wait time increments/decrements by 50 000 000 nanoseconds.
+		 * 81 fps (roughly) is the maximum speed and 1 (roughly) fps the infimum.
+		 * So as to not risk making this wildly inaccurate, we have one variable
+		 * to control the increments/decrements, and then cast to long for 'wait'.
+		 */
 	    case ']':
-		if (animation_sleep.tv_sec == 0
-		    && animation_sleep.tv_nsec > (long) 50e+6 
-		    && animation_sleep.tv_nsec <= (long) 950e+6) { 
-		    animation_sleep.tv_nsec -= (long) 50e+6;
-		}
-		else if (animation_sleep.tv_sec == 1
-			 && animation_sleep.tv_nsec == 0) {
-		    animation_sleep.tv_sec = 0;
-		    animation_sleep.tv_nsec = (long) 950e+6;
+		/* floor and ceil are used to round; for example, if fwait is ~12499999.999
+		 * then checking if fwait > 12.5e+6 will not be useful
+		 */
+		if (ceil(fwait) > floor(12.5e+6)) {
+		    fwait = 1e+9 * fwait / (1e+9 + fwait);
+		    wait.tv_nsec = (long) fwait;
 		}
 		print_info();
 		break;
 	    case '[':
-		if (animation_sleep.tv_sec == 0
-		    && animation_sleep.tv_nsec < (long) 950e+6) {
-		    animation_sleep.tv_nsec += (long) 50e+6;
-		}
-		else if (animation_sleep.tv_sec == 0
-			 && animation_sleep.tv_nsec == 950e+6) {
-		    animation_sleep.tv_sec = 1;
-		    animation_sleep.tv_nsec = 0;
+		if (floor(fwait) < ceil(0.5e+9)) {
+		    fwait = 1e+9 * fwait / (1e+9 - fwait);
+		    wait.tv_nsec = (fwait < 1e+9) ? (long) fwait : 999999999;
 		}
 		print_info();
 		break;
 	    case 10:
-		do {
-		    tick(animation_sleep);
-		}
 		/* nodelay (called in init_ncurses) is essential 
 		 * for this to work as a non-blocking check. */
+		do {
+		    tick();
+		    display_cells(grid, lifelines, lifecols);
+		    wmove(life, y, x);
+		    wrefresh(life);
+		    nanosleep(&wait, NULL);
+		}
 		while ((ch = getch()) != 10);
 		break;
 	    }
 	}
+	display_cells(grid, lifelines, lifecols);
 	wmove(life, y, x);
-
 	wrefresh(life);
+    }
+    for (int j = 0; j < lifelines; j++) {
+	for (int i = 0; i < lifecols; i++) {
+	    printf("%d ", grid[j][i]);
+	}
+	printf("\n");
+    }
+    for (int j = 0; j < lifelines; j++) {
+	for (int i = 0; i < lifecols; i++) {
+	    printf("%d ", buffer[j][i]);
+	}
+	printf("\n");
     }
     finish();
 
     return 0;
 }
 
-void copy_cells(int ** matrix0, int ** matrix1) {
-    if ((matrix0 == grid && matrix1 == buffer) || (matrix0 == buffer && matrix1 == grid)) {
-	for (int j = 0; j < lifelines; j++) {
-	    memcpy(matrix0[j], matrix1[j], lifecols * sizeof(int));
+/* Assumes matrix dimensions (y by x) is lifelines by lifecols. */
+void display_cells(int **matrix, int y_len, int x_len)
+{
+    for (int j = 0; j < y_len; j++) {
+	for (int i = 0; i < x_len; i++) {
+	    mvwaddch(life, j, i, (matrix[j][i]) ? LIVE : DEAD);
 	}
-    }
-    else {
-	perror("wrong arguments to copy_cells");
-	exit(1);
     }
 }
 
-int count_neighbors(int x, int y)
+void copy_cells(int ** matrix0, int ** matrix1, int y_len, int x_len)
 {
-    /* While this does take two more steps than is strictly necessary,
-     * writing out the eight operands in the return statement would be
-     * both cumbersome to write and rather hideous to read.
-     */
-    int n = 0;
-    for (int j = -1; j <= 1; j++) {
-	for (int i = -1; i <= 1; i++) {
-	    n += ISLIVE((y + j) % lifelines, (x + i) % lifecols); 
-	}
+    for (int j = 0; j < y_len; j++) {
+	memcpy(matrix0[j], matrix1[j], x_len * sizeof(int));
     }
-    n -= ISLIVE(y, x);
-    return n;
+
 }
 
 void randomize_grid()
 {
-    int r = rand();
     for (int j = 0; j < lifelines; j++) {
 	for (int i = 0; i < lifecols; i++) {
+	    int r = rand();
 	    if (r % 8 >= 4) {
-		activate(j, i, grid);
+		grid[j][i] = 1;
 	    }
 	    else {
-		deactivate(j, i, grid);
+		grid[j][i] = 0;
 	    }
 	}
     }
 }
 
-void tick(struct timespec sleep)
+int count_neighbors(int **matrix, int y, int x)
+{
+    return matrix[mod(y-1, lifelines)][mod(x-1, lifecols)]
+	+ matrix[mod(y-1, lifelines)][mod(x, lifecols)]
+	+ matrix[mod(y-1, lifelines)][mod(x+1, lifecols)]
+	+ matrix[mod(y, lifelines)][mod(x-1, lifecols)]
+	+ matrix[mod(y, lifelines)][mod(x+1, lifecols)]
+	+ matrix[mod(y+1, lifelines)][mod(x-1, lifecols)]
+	+ matrix[mod(y+1, lifelines)][mod(x, lifecols)]
+	+ matrix[mod(y+1, lifelines)][mod(x+1, lifecols)];	     
+}
+
+void tick()
 {
     /* We alter buffer according to the Game of Life rules, based on the
      * states of grid; display the buffer; then copy buffer to grid.
@@ -194,23 +208,21 @@ void tick(struct timespec sleep)
      * buffer which differ from grid; then displaying the rest from grid;
      * then copying differing cells from buffer to grid.
      */
-    
-    copy_cells(buffer, grid);
-    for (int y = 0; y < lifelines; y++) {
-	for (int x = 0; x < lifecols; x++) {
-//	    if (buffer[y][x] != grid[y][x]) { //This check gets rid of redundant calculations
-	    int n = count_neighbors(y, x);
+
+    copy_cells(buffer, grid, lifelines, lifecols);
+    for (int j = 0; j < lifelines; j++) {
+	for (int i = 0; i < lifecols; i++) {
+	    int n = count_neighbors(grid, j, i);
 	    if (n < 2 || n > 3) {
-		deactivate(y, x, buffer);
+		buffer[j][i] = 0;
 	    }
 	    else if (n == 3) {
-		activate(y, x, buffer);
+		buffer[j][i] = 1;
 	    }
 	}
     }
-    copy_cells(grid, buffer);
+    copy_cells(grid, buffer, lifelines, lifecols);
     wrefresh(life);
-    nanosleep(&sleep, NULL);
 }
 
 WINDOW *createwin(int height, int width, int begy, int begx)
@@ -247,8 +259,6 @@ void init_ncurses()
     info = createwin(INFOLINES, INFOCOLS, 0, lifecols + 1);
 
     box(info, 0, 0);
-    mvwprintw(info, 1, 1, "INFO");
-
     wmove(life, 1, 1);
 
     wrefresh(info);
@@ -258,12 +268,12 @@ void init_ncurses()
 void init()
 {
     srand(time(NULL));
-    animation_sleep.tv_sec = 0;
-    animation_sleep.tv_nsec = (long) 100e+6;
+    wait.tv_sec = 0;
+    wait.tv_nsec = (long) fwait;
     init_ncurses();
     setlocale(LC_ALL, "");
 
-    /*We fill grid and buffer with zeros. */
+    /* We fill grid and buffer with zeros. */
 
     grid = (int **)malloc(lifelines * sizeof(int *));
     if (grid == NULL) {
@@ -276,9 +286,9 @@ void init()
     grid[0] = (int *)malloc(lifecols * lifelines * sizeof(int));
     buffer[0] = (int *)malloc(lifecols * lifelines * sizeof(int));
     for (int j = 0; j < lifelines; j++) {
-	grid[j] = (*grid + lifelines*j);
+	grid[j] = (*grid + lifecols*j);
 	memset(grid[j], 0, lifecols);
-	buffer[j] = (*buffer + lifelines*j);
+	buffer[j] = (*buffer + lifecols*j);
 	memset(buffer[j], 0, lifecols);
     }
     
@@ -288,63 +298,29 @@ void init()
 void print_info()
 {
     int y, x;
-    mvwprintw(info, 2, 1, "Total size");
-    mvwprintw(info, 3, 1, "  Columns: %d", COLS);
-    mvwprintw(info, 4, 1, "  Lines: %d", LINES);
-    mvwprintw(info, 5, 1, "Life sizes");
-    mvwprintw(info, 6, 1, "  Columns: %d", lifecols);
-    mvwprintw(info, 7, 1, "  Lines: %d", lifelines);
-    mvwprintw(info, 8, 1, "Array size: %d", CELLCOUNT);
-    mvwprintw(info, 12, 1, "Move with arrow keys");
-    mvwprintw(info, 13, 1, "Space to activate/deactivate cell");
-    mvwprintw(info, 14, 1, "Enter to tick, [ and ] to adjust tick size");
-    mvwprintw(info, 15, 1, "r to randomize");
-    mvwprintw(info, 15, 1, "Quit with q");
+    mvwprintw(info, 1, 1, "Grid Dimensions");
+    mvwprintw(info, 2, 1, "  Columns: %d", lifecols);
+    mvwprintw(info, 3, 1, "  Lines: %d", lifelines);
+    double speed = (wait.tv_sec == 0) ? (1.0 / (wait.tv_nsec / 1e+9)) : 1.0;
+    mvwprintw(info, 4, 1, "Animation speed: %.2f fps ", speed);
+    mvwprintw(info, 6, 1, "Move with arrow keys");
+    mvwprintw(info, 7, 1, "Space to activate/deactivate cell");
+    mvwprintw(info, 8, 1, "Enter to start animation");
+    mvwprintw(info, 9, 1, "T to tick");
+    mvwprintw(info, 10, 1, "[ and ] to adjust animation speed");
+    mvwprintw(info, 11, 1, "r to randomize");
+    mvwprintw(info, 12, 1, "Quit with q");
     getyx(life, y, x);
     wmove(life, y, x);
     wrefresh(info);
     wrefresh(life);
 }
 
-/* activate and deactivate make a cell live or dead (respectively) AND display that cell.
- * This is a little awkward; it might be more intuitive to have one central function to 
- * display grid or buffer after they have been modified, but this works just as well.
- */
-
-void activate(int y, int x, int ** matrix)
+void clear_grid(int **matrix, int y_len, int x_len)
 {
-    if (matrix == buffer) {
-	BUFLIVEC(y, x);
-    }
-    else if (matrix == grid) {
-	LIVECELL(y, x);
-    }
-    else {
-	perror("Incorrect pointer passed to function activate");
-    }
-    mvwaddch(life, y, x, LIVE);
-}
-
-void deactivate(int y, int x, int ** matrix)
-{
-    if (matrix == buffer) {
-	BUFKILLC(y, x);
-    }
-    else if (matrix == grid) {
-	KILLCELL(y, x);
-    }
-    else {
-	perror("Incorrect pointer passed to function deactivate");
-    }
-    mvwaddch(life, y, x, DEAD);
-}
-
-void clear_grid()
-{
-    for (int j = 0; j < lifelines; j++) {
-	for (int i = 0; i < lifecols; i++) {
-	    KILLCELL(j, i);
-	    deactivate(j, i, buffer);
+    for (int j = 0; j < y_len; j++) {
+	for (int i = 0; i < x_len; i++) {
+	    matrix[j][i] = 0;
 	}
     }
 }

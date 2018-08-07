@@ -1,5 +1,5 @@
 CC=gcc
-LIBS=-lncurses
+LIBS=-lncurses -lm
 FLAGS=$(LIBS)
 DEBUG=-ggdb3 -pg
 trg=life
