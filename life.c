@@ -1,8 +1,6 @@
 /* Loosely based on MasseR's Curses-game-of-life (https://github.com/MasseR/Curses-game-of-life).
  *
- * TO DO.
- * write copycells
- * 
+ * TO DO
  * Allow for real-time adjustments to terminal screen dimensions
  * (Possibly at some point) Use two adjacent terminal cells per game of life cell 
  * for ``aesthetic'' purposes
@@ -65,7 +63,7 @@ int main()
 	else {
 	    switch(ch) {
 	    case ' ':
-		if (!ISLIVE(y, x)) {
+		if (!grid[y][x]) {
 		    grid[y][x] = 1;
 		}
 		else {
@@ -177,14 +175,14 @@ void randomize_grid()
 
 int count_neighbors(int **matrix, int y, int x)
 {
-    return matrix[mod(y-1, lifelines)][mod(x-1, lifecols)]
-	+ matrix[mod(y-1, lifelines)][mod(x, lifecols)]
-	+ matrix[mod(y-1, lifelines)][mod(x+1, lifecols)]
-	+ matrix[mod(y, lifelines)][mod(x-1, lifecols)]
-	+ matrix[mod(y, lifelines)][mod(x+1, lifecols)]
-	+ matrix[mod(y+1, lifelines)][mod(x-1, lifecols)]
-	+ matrix[mod(y+1, lifelines)][mod(x, lifecols)]
-	+ matrix[mod(y+1, lifelines)][mod(x+1, lifecols)];	     
+    return matrix[MOD(y-1, lifelines)][MOD(x-1, lifecols)]
+	+ matrix[MOD(y-1, lifelines)][MOD(x, lifecols)]
+	+ matrix[MOD(y-1, lifelines)][MOD(x+1, lifecols)]
+	+ matrix[MOD(y, lifelines)][MOD(x-1, lifecols)]
+	+ matrix[MOD(y, lifelines)][MOD(x+1, lifecols)]
+	+ matrix[MOD(y+1, lifelines)][MOD(x-1, lifecols)]
+	+ matrix[MOD(y+1, lifelines)][MOD(x, lifecols)]
+	+ matrix[MOD(y+1, lifelines)][MOD(x+1, lifecols)];	     
 }
 
 void tick()
