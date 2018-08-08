@@ -19,7 +19,7 @@
 #define INFOLINES LINES
 
 /* positive modulus */
-#define MOD(a, b) ((((a%b) % (b)) + (b)) % (b))
+#define MOD(a, b) (((((a)%(b)) % (b)) + (b)) % (b))
 
 /* grid will contain the cell information when the animation is paused, and will feed the buffer, whose cells are then displayed */
 
@@ -280,14 +280,14 @@ void print_info()
     mvwprintw(info, 2, 1, "  Columns: %d", lifecols);
     mvwprintw(info, 3, 1, "  Lines: %d", lifelines);
     double speed = (wait.tv_sec == 0) ? (1.0 / (wait.tv_nsec / 1e+9)) : 1.0;
-    mvwprintw(info, 4, 1, "Animation speed: %.2f fps ", speed);
+    mvwprintw(info, 4, 1, "Animation speed: %.0f fps ", speed);
     mvwprintw(info, 6, 1, "Move with arrow keys");
     mvwprintw(info, 7, 1, "Space to activate/deactivate cell");
     mvwprintw(info, 8, 1, "Enter to start animation");
     mvwprintw(info, 9, 1, "T to tick");
     mvwprintw(info, 10, 1, "[ and ] to adjust animation speed");
-    mvwprintw(info, 11, 1, "r to randomize");
-    mvwprintw(info, 12, 1, "Quit with q");
+    mvwprintw(info, 11, 1, "R to randomize");
+    mvwprintw(info, 12, 1, "Q to quit");
     getyx(life, y, x);
     wmove(life, y, x);
     wrefresh(info);
