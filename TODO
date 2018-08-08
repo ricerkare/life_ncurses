@@ -1,0 +1,3 @@
+Make "undo" tick option.
+Allow for real-time adjustments to terminal screen dimensions
+(Possibly at some point) Use two adjacent terminal cells per game of life cell for ``aesthetic'' purposes

@@ -1,10 +1,5 @@
 /* Loosely based on MasseR's Curses-game-of-life (https://github.com/MasseR/Curses-game-of-life).
  *
- * TO DO
- * Allow for real-time adjustments to terminal screen dimensions
- * (Possibly at some point) Use two adjacent terminal cells per game of life cell 
- * for ``aesthetic'' purposes
- *
  * NOTA BENE: any adjustments to the configuration (for instance, speed of 
  * animation) must be made when the animation is off.
  */
@@ -16,7 +11,15 @@
 #include <ncurses.h>
 #include <locale.h>
 #include <time.h>
-#include "macros.h"
+
+#define LIVE (' '|A_REVERSE) 	// Space + A_REVERSE produces the solid block which is the default cursor for many terminal emulators
+#define DEAD ' '		// Blank for dead cell
+
+#define INFOCOLS 35
+#define INFOLINES LINES
+
+/* positive modulus */
+#define MOD(a, b) ((((a) % (b)) + (b)) % (b))
 
 /* grid will contain the cell information when the animation is paused, and will feed the buffer, whose cells are then displayed */
 
@@ -37,10 +40,10 @@ void copy_cells(int **matrix0, int **matrix1, int y_len, int x_len);
 void randomize_grid();
 void clear_grid();
 void tick();
-void print_info(); //TODO
+void print_info(); 
 void init();
 void init_ncurses();
-void finish(); //TODO
+void finish(); 
 int count_neighbors(int **matrix, int y, int x);
 
 WINDOW *createwin(int height, int width, int begy, int begx);
@@ -51,96 +54,84 @@ int main()
     init();
     while ((ch = getch()) != 'q' && ch != 'Q') {
 	getyx(life, y, x);
-	if (ch == 'r' || ch == 'R') {
+	switch(ch) {
+	case 'r':
+	case 'R':
 	    randomize_grid();
-	}
-	else if (ch == 't' || ch == 'T') {
+	    break;
+	case 't':
+	case 'T':
 	    tick();
-	}
-	else if (ch == 'c' || ch == 'C') {
+	    break;
+	case 'c':
+	case 'C':
 	    clear_grid(grid, lifelines, lifecols);
-	}
-	else {
-	    switch(ch) {
-	    case ' ':
-		if (!grid[y][x]) {
-		    grid[y][x] = 1;
-		}
-		else {
-		    grid[y][x] = 0;
-		}
-		break;
-	    case KEY_UP:
-		y = (y - 1) % lifelines;
-		break;
-	    case KEY_DOWN:
-		y = (y + 1) % lifelines;
-		break;
-	    case KEY_LEFT:
-		x = (x - 1) % lifecols;
-		break;
-	    case KEY_RIGHT:
-		x = (x + 1) % lifecols;
-		break;
-		
-		/* Wait time increments/decrements by 50 000 000 nanoseconds.
-		 * 81 fps (roughly) is the maximum speed and 1 (roughly) fps the infimum.
-		 * So as to not risk making this wildly inaccurate, we have one variable
-		 * to control the increments/decrements, and then cast to long for 'wait'.
-		 */
-	    case ']':
-		/* floor and ceil are used to round; for example, if fwait is ~12499999.999
-		 * then checking if fwait > 12.5e+6 will not be useful
-		 */
-		if (ceil(fwait) > floor(12.5e+6)) {
-		    fwait = 1e+9 * fwait / (1e+9 + fwait);
-		    wait.tv_nsec = (long) fwait;
-		}
-		print_info();
-		break;
-	    case '[':
-		if (floor(fwait) < ceil(0.5e+9)) {
-		    fwait = 1e+9 * fwait / (1e+9 - fwait);
-		    wait.tv_nsec = (fwait < 1e+9) ? (long) fwait : 999999999;
-		}
-		print_info();
-		break;
-	    case 10:
-		/* nodelay (called in init_ncurses) is essential 
-		 * for this to work as a non-blocking check. */
-		do {
-		    tick();
-		    display_cells(grid, lifelines, lifecols);
-		    wmove(life, y, x);
-		    wrefresh(life);
-		    nanosleep(&wait, NULL);
-		}
-		while ((ch = getch()) != 10);
-		break;
+	    break;
+	case ' ':
+	    if (!grid[y][x]) {
+		grid[y][x] = 1;
 	    }
+	    else {
+		grid[y][x] = 0;
+	    }
+	    break;
+	case KEY_UP:
+	    y = (y - 1) % lifelines;
+	    break;
+	case KEY_DOWN:
+	    y = (y + 1) % lifelines;
+	    break;
+	case KEY_LEFT:
+	    x = (x - 1) % lifecols;
+	    break;
+	case KEY_RIGHT:
+	    x = (x + 1) % lifecols;
+	    break;
+		
+	    /* Wait time increments/decrements by 50 000 000 nanoseconds.
+	     * 81 fps (roughly) is the maximum speed and 1 (roughly) fps the infimum.
+	     * So as to not risk making this wildly inaccurate, we have one variable
+	     * to control the increments/decrements, and then cast to long for 'wait'.
+	     * floor and ceil are used to round; for example, if fwait is ~12499999.999
+	     * then checking if fwait > 12.5e+6 will not be useful
+	     */
+	case ']':
+	    if (ceil(fwait) > floor(12.5e+6)) {
+		fwait = 1e+9 * fwait / (1e+9 + fwait);
+		wait.tv_nsec = (long) fwait;
+	    }
+	    print_info();
+	    break;
+	case '[':
+	    if (floor(fwait) < ceil(0.5e+9)) {
+		fwait = 1e+9 * fwait / (1e+9 - fwait);
+		wait.tv_nsec = (fwait < 1e+9) ? (long) fwait : 999999999;
+	    }
+	    print_info();
+	    break;
+	case 10:
+	    /* nodelay (called in init_ncurses) is essential 
+	     * for this to work as a non-blocking check. */
+	    do {
+		tick();
+		display_cells(grid, lifelines, lifecols);
+		wmove(life, y, x);
+		wrefresh(life);
+		nanosleep(&wait, NULL);
+	    }
+	    while ((ch = getch()) != 10);
+	    break;
 	}
+	
 	display_cells(grid, lifelines, lifecols);
 	wmove(life, y, x);
 	wrefresh(life);
-    }
-    for (int j = 0; j < lifelines; j++) {
-	for (int i = 0; i < lifecols; i++) {
-	    printf("%d ", grid[j][i]);
-	}
-	printf("\n");
-    }
-    for (int j = 0; j < lifelines; j++) {
-	for (int i = 0; i < lifecols; i++) {
-	    printf("%d ", buffer[j][i]);
-	}
-	printf("\n");
     }
     finish();
 
     return 0;
 }
 
-/* Assumes matrix dimensions (y by x) is lifelines by lifecols. */
 void display_cells(int **matrix, int y_len, int x_len)
 {
     for (int j = 0; j < y_len; j++) {
@@ -187,24 +178,13 @@ int count_neighbors(int **matrix, int y, int x)
 
 void tick()
 {
-    /* We alter buffer according to the Game of Life rules, based on the
-     * states of grid; display the buffer; then copy buffer to grid.
-     * While this is a little backwards (the buffer, intuitively, should
-     * be copied to cells and then the cells displayed), it makes use of
-     * one set of for loops rather than two, so, ya know . . .
-     */
-
-    /* 
+    /*
      * The Rules.
      * For every cell, if n is the neighbor count, then
      *     cell live and n = 2 or 3 implies cell lives
      *     cell live and (n < 2 or n > 3) implies cell dies
      *     cell dead and n = 3 implies cell is revived
      *     cell dead and n =/= 3 implies cell stays dead
-     *
-     * Idea for future: optimize the tick by displaying only cells from 
-     * buffer which differ from grid; then displaying the rest from grid;
-     * then copying differing cells from buffer to grid.
      */
 
     copy_cells(buffer, grid, lifelines, lifecols);

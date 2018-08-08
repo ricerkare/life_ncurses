@@ -1,18 +1,9 @@
 CC=gcc
-LIBS=-lncurses -lm
-FLAGS=$(LIBS)
-DEBUG=-ggdb3 -pg
-trg=life
 
-all: $(trg)
+all: life
 
-$(trg): life.o
-	$(CC) $< -o $@ $(FLAGS)
-
-life.o: life.c macros.h
-	$(CC) -c -o $@ $<
-
-.PHONY: clean
+life: life.c
+	$(CC) life.c -o life -lncurses -lm
 
 clean:
 	rm -f *.o
