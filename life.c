@@ -19,7 +19,7 @@
 #define INFOLINES LINES
 
 /* positive modulus */
-#define MOD(a, b) ((((a) % (b)) + (b)) % (b))
+#define MOD(a, b) ((((a%b) % (b)) + (b)) % (b))
 
 /* grid will contain the cell information when the animation is paused, and will feed the buffer, whose cells are then displayed */
 
